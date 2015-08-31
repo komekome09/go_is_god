@@ -35,6 +35,36 @@ func (w openWeatherMap) temperature(city string) (float64, error){
     return d.Main.Kelvin, nil
 }
 
+type forecastIo struct{
+    apikey string
+}
+
+var placeLatitudeLongitude = map[string] string{
+    "tokyo": "35.69,139.69",
+}
+
+func (w forecastIo) temperature(place string) (float64, error){
+    resp, err := http.Get("https://api.forecast.io/forecast/" + w.apikey + "/" +placeLatitudeLongitude[place])
+    if err != nil{
+        return 0, err
+    }
+
+    defer resp.Body.Close()
+    var d struct{
+        Currently struct{
+            Temperature float64 `json:"temperature"`
+        }`json:"currently"`
+    }
+
+    if err := json.NewDecoder(resp.Body).Decode(&d); err != nil{
+        return 0, err
+    }
+
+    kelvin := 5.0 / 9.0 * (d.Currently.Temperature - 32) + 273.15
+    log.Printf("forecast.io: %s[%s]: %.2f", place, placeLatitudeLongitude[place], kelvin)
+    return kelvin, nil
+}
+
 type weatherUnderground struct{
     apikey string
 }
@@ -71,17 +101,37 @@ type weatherData struct{
 type multiWeatherProvider []weatherProvider
 
 func (w multiWeatherProvider) temperature(city string) (float64, error){
-    sum := 0.0
+    // Make a channel for temperatures, and a channel for errors.
+    // Each provider will push a value with into only one.
+    temps := make(chan float64, len(w))
+    errs := make(chan error, len(w))
 
+    // For each provider, spawn a goroutine with an anonymous function.
+    // That function will invoke the temperature method, and forward the response.
     for _, provider := range w{
-        k, err := provider.temperature(city)
-        if err != nil{
-            return 0, err
-        }
-
-        sum += k
+        go func(p weatherProvider){
+            k, err := p.temperature(city)
+            if err != nil{
+                errs <- err
+                return
+            }
+            temps <- k
+        }(provider)
     }
 
+    sum := 0.0
+
+    // Collect a temperature on an error from each provider
+    for i := 0; i < len(w); i++{
+        select{
+        case temp := <-temps:
+            sum += temp
+        case err := <-errs:
+            return 0, err
+        }
+    }
+
+    // Return the average, same as before
     return sum / float64(len(w)), nil
 }
 
@@ -105,6 +155,7 @@ func main(){
     mw := multiWeatherProvider{
         openWeatherMap{},
         weatherUnderground{apikey: "b0a2ad7d54f9d7bb"},
+        forecastIo{apikey: "e00af499915a73555cec54f8cf444155"},
     }
 
     http.HandleFunc("/hello", hello)
