@@ -135,22 +135,6 @@ func (w multiWeatherProvider) temperature(city string) (float64, error){
     return sum / float64(len(w)), nil
 }
 
-func query(city string)(weatherData, error){
-    resp, err := http.Get("http://api.openweathermap.org/data/2.5/weather?q=" + city)
-    if err != nil{
-        return weatherData{}, err
-    }
-
-    defer resp.Body.Close()
-    var d weatherData
-
-    if err := json.NewDecoder(resp.Body).Decode(&d); err != nil{
-        return weatherData{}, err
-    }
-
-    return d, nil
-}
-
 func main(){
     mw := multiWeatherProvider{
         openWeatherMap{},
