@@ -119,6 +119,13 @@ func (w multiWeatherProvider) temperature(city string) (float64, error){
         }(provider)
     }
 
+    select{
+    case <-temps:
+        log.Printf("Data received")
+    case <-time.After(5 * time.Second):
+        log.Printf("Received timeout")
+    }
+
     sum := 0.0
 
     // Collect a temperature on an error from each provider
